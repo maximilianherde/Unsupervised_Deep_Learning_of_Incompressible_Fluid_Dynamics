@@ -3,7 +3,7 @@ from torch import nn
 from torch.optim import Adam
 import numpy as np
 import matplotlib.pyplot as plt
-from derivatives import toCuda, toCpu, params, first_derivative, laplacian, curl, vel_map, convert_grid
+from derivatives import toCuda, toCpu, params, curl, convert_grid
 from setups import Dataset
 from Logger import Logger
 from pde_cnn import get_Net
@@ -77,29 +77,9 @@ with run:
             a_new, p_new = fluid_model(a_old, p_old, v_old, flow_mask, cond_mask, v_cond)
             v_new = curl(a_new)
 
-            # compute boundary loss
-            # loss_bound = torch.mean(torch.square(
-            #     cond_mask_mac*(v_new-v_cond))[:, :, 1:-1, 1:-1], dim=(1, 2, 3))
+            # compute loss
             loss_bound = boundary_loss_(v_new, cond_mask_mac, v_cond)
-
-            # explicit / implicit / IMEX integration schemes
-            # if params.integrator == "explicit":
-            #     v = v_old
-            # if params.integrator == "implicit":
-            #     v = v_new
-            # if params.integrator == "imex":
-            #     v = (v_new+v_old)/2
-
-            # # compute loss for momentum equation
-            # loss_nav = torch.mean(torch.square(flow_mask_mac*(rho*((v_new[:, 1:2]-v_old[:, 1:2])/dt+v[:, 1:2]*first_derivative(v[:, 1:2], "x", "central")+0.5*(vel_map(v[:, 0:1], "x", "left")*first_derivative(v[:, 1:2], "y", "left")+vel_map(v[:, 0:1], "x", "right")*first_derivative(v[:, 1:2], "y", "right")))+first_derivative(p_new, "x", "left")-mu*laplacian(v[:, 1:2])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3)) +\
-            #     torch.mean(torch.square(flow_mask_mac*(rho*((v_new[:, 0:1]-v_old[:, 0:1])/dt+v[:, 0:1]*first_derivative(v[:, 0:1], "y", "central")+0.5*(vel_map(v[:, 1:2], "y", "left")*first_derivative(
-            #         v[:, 0:1], "x", "left")+vel_map(v[:, 1:2], "y", "right")*first_derivative(v[:, 0:1], "x", "right")))+first_derivative(p_new, "y", "left")-mu*laplacian(v[:, 0:1])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3))
-
             loss_nav = equation_loss_(v_old, v_new, p_new, flow_mask_mac)
-
-            # regularize_grad_p = torch.mean(
-            #     (first_derivative(p_new, "x", "right")**2+first_derivative(p_new, "y", "right")**2)[:, :, 2:-2, 2:-2], dim=(1, 2, 3))
-
             regularize_grad_p = regularizer_(p_new)
 
             loss = params.loss_bound*loss_bound + params.loss_nav*loss_nav + \
@@ -127,7 +107,7 @@ with run:
             dataset.tell(toCpu(a_new), toCpu(p_new))
 
             # log training metrics
-            if i % 10 == 0:
+            if i % 16 == 0:
                 loss = toCpu(loss).numpy()
                 loss_bound = toCpu(torch.mean(loss_bound)).numpy()
                 loss_nav = toCpu(torch.mean(loss_nav)).numpy()
@@ -144,7 +124,7 @@ with run:
                     }
                 )
 
-                if i % 100 == 0:
+                if i % 128 == 0:
                     print(
                         f"{epoch}: i:{i}: loss: {loss}; loss_bound: {loss_bound}; loss_nav: {loss_nav};")
 
