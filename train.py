@@ -3,8 +3,8 @@ from torch import nn
 from torch.optim import Adam
 import numpy as np
 import matplotlib.pyplot as plt
-from derivatives import dx, dy, dx_left, dy_top, dx_right, dy_bottom, laplace, map_vx2vy_left, map_vy2vx_top, map_vx2vy_right, map_vy2vx_bottom, normal2staggered, toCuda, toCpu, params
-from derivatives import vector2HSV, rot_mac
+from derivatives import toCuda, toCpu, params, first_derivative, laplacian, curl, vel_map, convert_grid
+from derivatives import vector2HSV
 from setups import Dataset
 from Logger import Logger, t_step
 from pde_cnn import get_Net
@@ -63,17 +63,17 @@ for epoch in range(params.load_index, params.n_epochs):
         v_cond, cond_mask, flow_mask, a_old, p_old = toCuda(dataset.ask())
 
         # convert v_cond,cond_mask,flow_mask to MAC grid
-        v_cond = normal2staggered(v_cond)
-        cond_mask_mac = (normal2staggered(
-            cond_mask.repeat(1, 2, 1, 1)) == 1).float()
-        flow_mask_mac = (normal2staggered(
-            flow_mask.repeat(1, 2, 1, 1)) >= 0.5).float()
+        v_cond = convert_grid(v_cond, "staggered")
+        cond_mask_mac = (convert_grid(
+            cond_mask.repeat(1, 2, 1, 1), "staggered") == 1).float()
+        flow_mask_mac = (convert_grid(
+            flow_mask.repeat(1, 2, 1, 1), "staggered") >= 0.5).float()
 
-        v_old = rot_mac(a_old)
+        v_old = curl(a_old)
 
         # predict new fluid state from old fluid state and boundary conditions using the neural fluid model
         a_new, p_new = fluid_model(a_old, p_old, flow_mask, v_cond, cond_mask)
-        v_new = rot_mac(a_new)
+        v_new = curl(a_new)
 
         # compute boundary loss
         loss_bound = torch.mean(loss_function(
@@ -88,12 +88,12 @@ for epoch in range(params.load_index, params.n_epochs):
             v = (v_new+v_old)/2
 
         # compute loss for momentum equation
-        loss_nav = torch.mean(loss_function(flow_mask_mac*(rho*((v_new[:, 1:2]-v_old[:, 1:2])/dt+v[:, 1:2]*dx(v[:, 1:2])+0.5*(map_vy2vx_top(v[:, 0:1])*dy_top(v[:, 1:2])+map_vy2vx_bottom(v[:, 0:1])*dy_bottom(v[:, 1:2])))+dx_left(p_new)-mu*laplace(v[:, 1:2])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3)) +\
-            torch.mean(loss_function(flow_mask_mac*(rho*((v_new[:, 0:1]-v_old[:, 0:1])/dt+v[:, 0:1]*dy(v[:, 0:1])+0.5*(map_vx2vy_left(v[:, 1:2])*dx_left(
-                v[:, 0:1])+map_vx2vy_right(v[:, 1:2])*dx_right(v[:, 0:1])))+dy_top(p_new)-mu*laplace(v[:, 0:1])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3))
+        loss_nav = torch.mean(loss_function(flow_mask_mac*(rho*((v_new[:, 1:2]-v_old[:, 1:2])/dt+v[:, 1:2]*first_derivative(v[:, 1:2], "x", "central")+0.5*(vel_map(v[:, 0:1], "x", "left")*first_derivative(v[:, 1:2], "y", "left")+vel_map(v[:, 0:1], "x", "right")*first_derivative(v[:, 1:2], "y", "right")))+first_derivative(p_new, "x", "left")-mu*laplacian(v[:, 1:2])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3)) +\
+            torch.mean(loss_function(flow_mask_mac*(rho*((v_new[:, 0:1]-v_old[:, 0:1])/dt+v[:, 0:1]*first_derivative(v[:, 0:1], "y", "central")+0.5*(vel_map(v[:, 1:2], "y", "left")*first_derivative(
+                v[:, 0:1], "x", "left")+vel_map(v[:, 1:2], "y", "right")*first_derivative(v[:, 0:1], "x", "right")))+first_derivative(p_new, "y", "left")-mu*laplacian(v[:, 0:1])))[:, :, 1:-1, 1:-1], dim=(1, 2, 3))
 
         regularize_grad_p = torch.mean(
-            (dx_right(p_new)**2+dy_bottom(p_new)**2)[:, :, 2:-2, 2:-2], dim=(1, 2, 3))
+            (first_derivative(p_new, "x", "right")**2+first_derivative(p_new, "y", "right")**2)[:, :, 2:-2, 2:-2], dim=(1, 2, 3))
 
         # optional: additional loss to keep mean of a / p close to 0
         loss_mean_a = torch.mean(a_new, dim=(1, 2, 3))**2
