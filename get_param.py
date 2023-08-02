@@ -23,7 +23,7 @@ def params():
 	parser.add_argument('--n_epochs', default=100, type=int, help='number of epochs (after each epoch, the model gets saved)')
 	parser.add_argument('--n_grad_steps', default=500, type=int, help='number of gradient descent steps')
 	parser.add_argument('--hidden_size', default=20, type=int, help='hidden size of network (default: 20)')
-	parser.add_argument('--n_batches_per_epoch', default=4096, type=int, help='number of batches per epoch (default: 5000)')
+	parser.add_argument('--n_batches_per_epoch', default=2000, type=int, help='number of batches per epoch (default: 5000)')
 	parser.add_argument('--batch_size', default=100, type=int, help='batch size (default: 100)')
 	parser.add_argument('--n_time_steps', default=1, type=int, help='number of time steps to propagate gradients (default: 1)')#note: this only works with static environments (and didn't bring any benefits anyway)
 	parser.add_argument('--average_sequence_length', default=2000, type=int, help='average sequence length in dataset (default: 5000)')
